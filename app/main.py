@@ -3,7 +3,7 @@ from app.models import Employee
 from app.database import engine, SessionLocal
 from sqlalchemy.orm import Session
 from typing import Annotated
-import models
+from app import models
 from starlette import status
 from pydantic import BaseModel, Field
 
