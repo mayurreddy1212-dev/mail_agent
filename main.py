@@ -9,3 +9,7 @@ async def home_root():
 @app.get('/deploy')
 async def home_root():
     return {"message":"deployed"}
+
+@app.get('/home')
+async def home_root():
+    return {"message":"home"}
