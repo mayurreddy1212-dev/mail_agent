@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Path
-from models import Employee
-from database import engine, SessionLocal
+from app.models import Employee
+from app.database import engine, SessionLocal
 from sqlalchemy.orm import Session
 from typing import Annotated
 import models
