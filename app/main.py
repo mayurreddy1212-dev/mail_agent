@@ -5,6 +5,10 @@ from app.routers import auth,employees
 
 app = FastAPI()
 
+@app.get('/')
+async def root():
+    return {"STATUS": "OK"}
+
 models.Base.metadata.create_all(bind=engine)
 
 app.include_router(auth.router)

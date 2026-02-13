@@ -35,9 +35,6 @@ def generate_employee_id(db: Session):
     new_number = last_number + 1
     return f"M{new_number:05d}"
 
-@router.get('/')
-async def root():
-    return {"status": "OK"}
 
 @router.get('/employees')
 async def all_employees(db: db_dependency):
