@@ -6,7 +6,9 @@ from typing import Annotated
 from starlette import status
 from pydantic import BaseModel, Field
 
-router =APIRouter()
+router = APIRouter(
+    tags=["Employees"]
+)
 
 def get_db():
     db = SessionLocal()

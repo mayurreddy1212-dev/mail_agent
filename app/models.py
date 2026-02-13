@@ -1,6 +1,14 @@
 from app.database import Base
 from sqlalchemy import Integer, Column, String, Boolean, CheckConstraint
 
+class Admin(Base):
+    __tablename__ = "admin"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False)
+    email = Column(String(100), unique=True, nullable=False)
+    hashed_password = Column(String(25), nullable=False)
+
 class Employee(Base):
     __tablename__ = "employee"
 
@@ -12,13 +20,14 @@ class Employee(Base):
     address = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
-__table_args__ = (
-    CheckConstraint(
-        "salary >= 10000 AND salary <= 500000", 
-        name="salary_range"
+    __table_args__ = (
+        CheckConstraint(
+            "salary >= 10000 AND salary <= 500000",
+            name="salary_range"
         ),
-    CheckConstraint(
-        "id ~ '^M[0-9]{5}$'",
-        name="employee_id_format"
-        ),
+        CheckConstraint(
+            "id LIKE 'M_____'",
+            name="employee_id_format"
 )
+    )
+
