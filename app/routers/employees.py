@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Annotated
 from starlette import status
 from pydantic import BaseModel, Field
+from app.routers.auth import get_current_user
 
 router = APIRouter(
     tags=["Employees"]
@@ -18,11 +19,12 @@ def get_db():
         db.close()
 
 db_dependency = Annotated[Session, Depends(get_db)]
+admin_dependancy=Annotated[dict,Depends(get_current_user)]
 
 class EmployeeRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
     designation: str = Field(..., min_length=2, max_length=50)
-    salary: int = Field(..., gt=0, lt=500000)
+    salary: int = Field(..., gt=10000, lt=500000)
     phone_no: str = Field(..., min_length=10, max_length=15)    
     address: str = Field(..., min_length=5, max_length=255)
     is_active: bool = True
@@ -48,7 +50,9 @@ async def search_employee_by_id(db: db_dependency, id: str):
     raise HTTPException(status_code=404, detail='Employee not found')
 
 @router.post("/employee", status_code=status.HTTP_201_CREATED)
-async def create_employee(db: db_dependency, employee_request: EmployeeRequest):
+async def create_employee(db: db_dependency, admin:admin_dependancy, employee_request: EmployeeRequest):
+    if admin is None:
+        raise HTTPException(status_code=401,detail="Authentication Failed")
     new_id = generate_employee_id(db)
     employee = Employee(id=new_id, **employee_request.model_dump())
     db.add(employee)
@@ -57,7 +61,9 @@ async def create_employee(db: db_dependency, employee_request: EmployeeRequest):
     return employee
 
 @router.put("/employee/{id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_employee(db: db_dependency, id: str, employee_request: EmployeeRequest):
+async def update_employee(db: db_dependency, admin:admin_dependancy, id: str, employee_request: EmployeeRequest):
+    if admin is None:
+        raise HTTPException(status_code=401,detail="Authentication Failed")
     employee = db.query(Employee).filter(Employee.id == id).first()
     if employee is None:
         raise HTTPException(status_code=404, detail=f"Employee with id {id} not found")
@@ -72,12 +78,12 @@ async def update_employee(db: db_dependency, id: str, employee_request: Employee
     return employee
 
 @router.delete("/employee/{id}",status_code=status.HTTP_204_NO_CONTENT)
-async def delete_employee(db:db_dependency,id:str):
+async def delete_employee(db:db_dependency, admin:admin_dependancy, id:str):
+    if admin is None:
+        raise HTTPException(status_code=401,detail="Authentication Failed")
     employee=db.query(Employee).filter(Employee.id==id).first()
     if employee is None:
         raise HTTPException(status_code=404,detail="employee not found")
     
-    # db.query(Employee).filter(Employee.id==id).delete()
     db.delete(employee)
-
     db.commit()
