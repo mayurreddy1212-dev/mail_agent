@@ -23,7 +23,6 @@ admin_dependancy=Annotated[dict,Depends(get_current_user)]
 
 class EmployeeRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
-    emp_code: Annotated[str, Field(max_length=6)]
     designation: str = Field(..., min_length=2, max_length=50)
     salary: int = Field(..., gt=10000, lt=500000)
     phone_no: str = Field(..., min_length=10, max_length=15)    
@@ -52,12 +51,7 @@ async def create_employee(
 
     employee = Employee(**employee_request.model_dump())
     db.add(employee)
-    db.flush()
-
-    employee.emp_code = f"M{employee.id:05d}"
-
     db.commit()
-    db.refresh(employee)
     
     return employee
 
