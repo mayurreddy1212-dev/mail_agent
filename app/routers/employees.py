@@ -86,7 +86,10 @@ def send_email(to_email: str, subject: str, body: str):
 
 def generate_email_content(instruction: str) -> str:
     prompt = ChatPromptTemplate.from_template(
-        "Write a professional HR welcome email based on the instruction:\n\n{instruction}\n\nEmail:"
+        "Write a professional HR welcome email for MR Developers based on the instruction below.\n\n"
+        "The email must clearly mention that the company name is MR Developers and that the higher authority and sender is Mayur.\n\n"
+        "{instruction}\n\n"
+        "Email:"
     )
 
     llm = ChatGroq(
