@@ -35,7 +35,7 @@ async def all_employees(db: db_dependency):
     return db.query(Employee).all()
 
 @router.get("/employee/{id}", status_code=status.HTTP_200_OK)
-async def search_employee_by_id(db: db_dependency, id: str):
+async def search_employee_by_id(db: db_dependency, id: int):
     employee = db.query(Employee).filter(Employee.id == id).first()
     if employee is not None:
         return employee
@@ -64,7 +64,7 @@ async def create_employee(
 
 
 @router.put("/employee/{id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_employee(db: db_dependency, admin:admin_dependancy, id: str, employee_request: EmployeeRequest):
+async def update_employee(db: db_dependency, admin:admin_dependancy, id: int, employee_request: EmployeeRequest):
     if admin is None:
         raise HTTPException(status_code=401,detail="Authentication Failed")
     employee = db.query(Employee).filter(Employee.id == id).first()
@@ -81,7 +81,7 @@ async def update_employee(db: db_dependency, admin:admin_dependancy, id: str, em
     return employee
 
 @router.delete("/employee/{id}",status_code=status.HTTP_204_NO_CONTENT)
-async def delete_employee(db:db_dependency, admin:admin_dependancy, id:str):
+async def delete_employee(db:db_dependency, admin:admin_dependancy, id:int):
     if admin is None:
         raise HTTPException(status_code=401,detail="Authentication Failed")
     employee=db.query(Employee).filter(Employee.id==id).first()
