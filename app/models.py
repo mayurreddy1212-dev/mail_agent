@@ -7,7 +7,7 @@ class Admin(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), unique=True, nullable=False)
     email = Column(String(100), unique=True, nullable=False)
-    hashed_password = Column(String(25), nullable=False)
+    hashed_password = Column(String(100), nullable=False)
 
 class Employee(Base):
     __tablename__ = "employee"
@@ -28,6 +28,5 @@ class Employee(Base):
         CheckConstraint(
             "id LIKE 'M_____'",
             name="employee_id_format"
-)
+        ),
     )
-
