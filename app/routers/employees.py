@@ -1,15 +1,34 @@
-from fastapi import Depends, HTTPException, Path,APIRouter
-from app.models import Employee
-from app.database import engine, SessionLocal
+# Imports
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Annotated
 from starlette import status
-from pydantic import BaseModel, Field
+from typing import Annotated
+from pydantic import BaseModel, Field, EmailStr
+
+from app.database import SessionLocal
+from app.models import Employee
 from app.routers.auth import get_current_user
 
+# Email + AI
+import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
+load_dotenv()
+
+# Router Config
+
 router = APIRouter(
+    prefix="/employee",
     tags=["Employees"]
 )
+
+
+# Database Dependency
 
 def get_db():
     db = SessionLocal()
@@ -19,67 +38,170 @@ def get_db():
         db.close()
 
 db_dependency = Annotated[Session, Depends(get_db)]
-admin_dependancy=Annotated[dict,Depends(get_current_user)]
+admin_dependency = Annotated[dict, Depends(get_current_user)]
+
+
+# Environment Config
+
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+
+# Pydantic Schemas
 
 class EmployeeRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
     designation: str = Field(..., min_length=2, max_length=50)
     salary: int = Field(..., gt=10000, lt=500000)
-    phone_no: str = Field(..., min_length=10, max_length=15)    
+    phone_no: str = Field(..., min_length=10, max_length=15)
     address: str = Field(..., min_length=5, max_length=255)
+    email: EmailStr
     is_active: bool = True
 
-@router.get('/employees')
-async def all_employees(db: db_dependency):
+
+class EmployeeResponse(EmployeeRequest):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+# Email Utilities
+
+def send_email(to_email: str, subject: str, body: str):
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL_ADDRESS
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        server.send_message(msg)
+
+
+def generate_email_content(instruction: str) -> str:
+    prompt = ChatPromptTemplate.from_template(
+        "Write a professional HR welcome email based on the instruction:\n\n{instruction}\n\nEmail:"
+    )
+
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=GROQ_API_KEY
+    )
+
+    response = llm.invoke(
+        prompt.format_prompt(instruction=instruction).to_messages()
+    )
+
+    return response.content
+
+
+# Routes
+
+# Get All Employees
+@router.get("/", response_model=list[EmployeeResponse])
+def get_all_employees(db: db_dependency):
     return db.query(Employee).all()
 
-@router.get("/employee/{id}", status_code=status.HTTP_200_OK)
-async def search_employee_by_id(db: db_dependency, id: int):
-    employee = db.query(Employee).filter(Employee.id == id).first()
-    if employee is not None:
-        return employee
-    raise HTTPException(status_code=404, detail='Employee not found')
 
-@router.post("/employee", status_code=status.HTTP_201_CREATED)
-async def create_employee(
+# Get Employee By ID
+@router.get("/{id}", response_model=EmployeeResponse)
+def get_employee_by_id(id: int, db: db_dependency):
+    employee = db.query(Employee).filter(Employee.id == id).first()
+
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    return employee
+
+
+# Create Employee + Auto AI Welcome Email
+@router.post("/", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
+def create_employee(
+    employee_request: EmployeeRequest,
     db: db_dependency,
-    admin: admin_dependancy,
-    employee_request: EmployeeRequest
+    admin: admin_dependency
 ):
     if admin is None:
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
-    employee = Employee(**employee_request.model_dump())
-    db.add(employee)
+    # Prevent duplicate email
+    existing = db.query(Employee).filter(Employee.email == employee_request.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Employee with this email already exists")
+
+    # Save employee
+    new_employee = Employee(**employee_request.model_dump())
+    db.add(new_employee)
+    db.commit()
+    db.refresh(new_employee)
+
+    # AI Welcome Email
+    try:
+        instruction = (
+            f"Write a warm professional welcome email to {new_employee.name}, "
+            f"who has joined as a {new_employee.designation}. "
+            f"Mention growth opportunities and company culture."
+        )
+
+        body = generate_email_content(instruction)
+
+        send_email(
+            new_employee.email,
+            "Welcome to the Company ",
+            body
+        )
+
+    except Exception as e:
+        print("Email failed:", e)
+
+    return new_employee
+
+
+# Update Employee
+@router.put("/{id}", response_model=EmployeeResponse)
+def update_employee(
+    id: int,
+    employee_request: EmployeeRequest,
+    db: db_dependency,
+    admin: admin_dependency
+):
+    if admin is None:
+        raise HTTPException(status_code=401, detail="Authentication Failed")
+
+    employee = db.query(Employee).filter(Employee.id == id).first()
+
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    for key, value in employee_request.model_dump().items():
+        setattr(employee, key, value)
+
     db.commit()
     db.refresh(employee)
+
     return employee
 
 
-
-@router.put("/employee/{id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_employee(db: db_dependency, admin:admin_dependancy, id: int, employee_request: EmployeeRequest):
+# Delete Employee
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_employee(
+    id: int,
+    db: db_dependency,
+    admin: admin_dependency
+):
     if admin is None:
-        raise HTTPException(status_code=401,detail="Authentication Failed")
+        raise HTTPException(status_code=401, detail="Authentication Failed")
+
     employee = db.query(Employee).filter(Employee.id == id).first()
-    if employee is None:
-        raise HTTPException(status_code=404, detail=f"Employee with id {id} not found")
-    employee.name = employee_request.name
-    employee.designation = employee_request.designation
-    employee.salary = employee_request.salary
-    employee.phone_no = employee_request.phone_no
-    employee.address = employee_request.address
-    employee.is_active = employee_request.is_active
-    db.commit()
-    db.refresh(employee)
 
-@router.delete("/employee/{id}",status_code=status.HTTP_204_NO_CONTENT)
-async def delete_employee(db:db_dependency, admin:admin_dependancy, id:int):
-    if admin is None:
-        raise HTTPException(status_code=401,detail="Authentication Failed")
-    employee=db.query(Employee).filter(Employee.id==id).first()
-    if employee is None:
-        raise HTTPException(status_code=404,detail="employee not found")
-    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
     db.delete(employee)
     db.commit()

@@ -20,6 +20,7 @@ class Employee(Base):
     phone_no = Column(String(15), nullable=False, unique=True)
     address = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    email = Column(String(50), nullable=False)
 
     __table_args__ = (
         CheckConstraint(
