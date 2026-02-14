@@ -25,5 +25,5 @@ class Employee(Base):
         CheckConstraint(
             "salary >= 10000 AND salary <= 500000",
             name="salary_range"
-        )
+        ),
     )
