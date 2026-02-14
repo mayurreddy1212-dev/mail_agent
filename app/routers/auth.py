@@ -81,8 +81,8 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     }
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
-allow=True
-if allow == True:
+
+if os.getenv("ALLOW_ADMIN_CREATION", "false").lower() == "true":
     @router.post("/auth", status_code=status.HTTP_201_CREATED)
     async def create_admin(create_admin_request: CreateAdminRequest, db: db_dependency):
 
