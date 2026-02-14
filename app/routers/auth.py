@@ -43,6 +43,7 @@ db_dependency = Annotated[Session, Depends(get_db)]
 
 class CreateAdminRequest(BaseModel):
     name: str
+    emp_code:str
     email: EmailStr
     password: str
 
@@ -97,6 +98,7 @@ if allow == True:
 
         new_admin = Admin(
             name=create_admin_request.name,
+            emp_code=create_admin_request.emp_code,
             email=create_admin_request.email,
             hashed_password=hashed_password
         )
