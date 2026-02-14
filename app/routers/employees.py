@@ -23,6 +23,7 @@ admin_dependancy=Annotated[dict,Depends(get_current_user)]
 
 class EmployeeRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
+    emp_code: Annotated[str, Field(max_length=6)]
     designation: str = Field(..., min_length=2, max_length=50)
     salary: int = Field(..., gt=10000, lt=500000)
     phone_no: str = Field(..., min_length=10, max_length=15)    
@@ -57,7 +58,9 @@ async def create_employee(
 
     db.commit()
     db.refresh(employee)
+    
     return employee
+
 
 
 @router.put("/employee/{id}", status_code=status.HTTP_204_NO_CONTENT)
