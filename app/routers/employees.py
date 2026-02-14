@@ -29,15 +29,6 @@ class EmployeeRequest(BaseModel):
     address: str = Field(..., min_length=5, max_length=255)
     is_active: bool = True
 
-def generate_employee_id(db: Session):
-    last_employee = db.query(Employee).order_by(Employee.id.desc()).first()
-    if not last_employee:
-        return "M00001"
-    last_number = int(last_employee.id[1:])
-    new_number = last_number + 1
-    return f"M{new_number:05d}"
-
-
 @router.get('/employees')
 async def all_employees(db: db_dependency):
     return db.query(Employee).all()
@@ -50,15 +41,24 @@ async def search_employee_by_id(db: db_dependency, id: str):
     raise HTTPException(status_code=404, detail='Employee not found')
 
 @router.post("/employee", status_code=status.HTTP_201_CREATED)
-async def create_employee(db: db_dependency, admin:admin_dependancy, employee_request: EmployeeRequest):
+async def create_employee(
+    db: db_dependency,
+    admin: admin_dependancy,
+    employee_request: EmployeeRequest
+):
     if admin is None:
-        raise HTTPException(status_code=401,detail="Authentication Failed")
-    new_id = generate_employee_id(db)
-    employee = Employee(id=new_id, **employee_request.model_dump())
+        raise HTTPException(status_code=401, detail="Authentication Failed")
+
+    employee = Employee(**employee_request.model_dump())
     db.add(employee)
+    db.flush()
+
+    employee.emp_code = f"M{employee.id:05d}"
+
     db.commit()
     db.refresh(employee)
     return employee
+
 
 @router.put("/employee/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_employee(db: db_dependency, admin:admin_dependancy, id: str, employee_request: EmployeeRequest):
