@@ -52,7 +52,7 @@ async def create_employee(
     employee = Employee(**employee_request.model_dump())
     db.add(employee)
     db.commit()
-    
+    db.refresh(employee)
     return employee
 
 
@@ -72,7 +72,6 @@ async def update_employee(db: db_dependency, admin:admin_dependancy, id: int, em
     employee.is_active = employee_request.is_active
     db.commit()
     db.refresh(employee)
-    return employee
 
 @router.delete("/employee/{id}",status_code=status.HTTP_204_NO_CONTENT)
 async def delete_employee(db:db_dependency, admin:admin_dependancy, id:int):
