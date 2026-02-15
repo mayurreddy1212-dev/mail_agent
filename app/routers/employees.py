@@ -3,9 +3,11 @@ from sqlalchemy.orm import Session
 from starlette import status
 from typing import Annotated
 from pydantic import BaseModel, Field, EmailStr
+
 from app.database import SessionLocal
 from app.models import Employee
 from app.routers.auth import get_current_user
+
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -36,6 +38,40 @@ SMTP_PORT = 587
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    groq_api_key=GROQ_API_KEY
+)
+
+welcome_prompt = ChatPromptTemplate.from_template(
+    "You are a professional HR communication specialist.\n\n"
+    "Write a polished, warm, and professional welcome email for a new employee joining MR Developers.\n\n"
+    "Requirements:\n"
+    "- The company name must be clearly mentioned as MR Developers.\n"
+    "- The email must be written from Mayur, Founder & CEO of MR Developers.\n"
+    "- Maintain a confident, inspiring, and leadership tone.\n"
+    "- Highlight company culture, growth opportunities, professionalism, and long-term vision.\n"
+    "- Start strictly with a proper greeting using the provided employee name.\n"
+    "- Do NOT use placeholders like [Employee Name].\n"
+    "- Format properly with greeting, body paragraphs, and professional signature.\n\n"
+    "{instruction}\n\n"
+    "Generate only the final email content."
+)
+
+general_prompt = ChatPromptTemplate.from_template(
+    "You are a professional HR communication specialist at MR Developers.\n\n"
+    "Generate a professional email body strictly aligned with the subject provided.\n"
+    "Do NOT generate or modify the subject.\n\n"
+    "Subject: {subject}\n\n"
+    "Requirements:\n"
+    "- Start strictly with a proper greeting using the provided employee name.\n"
+    "- Do NOT use placeholders like [Employee Name].\n"
+    "- The tone must align with the subject.\n"
+    "- The email must be signed by Mayur, Founder & CEO, MR Developers.\n\n"
+    "{instruction}\n\n"
+    "Generate only the email body."
+)
 
 class EmployeeRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
@@ -68,38 +104,48 @@ def send_email(to_email: str, subject: str, body: str):
         server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         server.send_message(msg)
 
-def generate_email_content(instruction: str) -> str:
-    prompt = ChatPromptTemplate.from_template(
-        "You are a professional HR communication specialist.\n\n"
-        "Write a polished, warm, and professional email for MR Developers.\n\n"
-        "- The company name must be MR Developers.\n"
-        "- The email must be written from Mayur, Founder & CEO.\n"
-        "- Maintain a confident and leadership tone.\n"
-        "- Keep it concise and impactful.\n\n"
-        "{instruction}\n\n"
-        "Generate only the final email content."
-    )
-
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        groq_api_key=GROQ_API_KEY
+def generate_welcome_email_content(employee: Employee) -> str:
+    instruction = (
+        f"Start the email with: Dear {employee.name},\n\n"
+        f"{employee.name} has joined MR Developers as {employee.designation}. "
+        f"Make the email welcoming, motivational, and encouraging. "
+        f"Emphasize teamwork, excellence, innovation, and long-term growth."
     )
 
     response = llm.invoke(
-        prompt.format_prompt(instruction=instruction).to_messages()
+        welcome_prompt.format_prompt(
+            instruction=instruction
+        ).to_messages()
     )
 
     return response.content
 
-def send_welcome_email(employee: Employee):
-    instruction = (
-        f"The employee name is {employee.name}. "
-        f"They joined MR Developers as {employee.designation}. "
-        f"Make the email welcoming and motivational."
+def generate_general_email_content(employee: Employee, subject: str, instruction: str) -> str:
+    full_instruction = (
+        f"Start the email with: Dear {employee.name},\n\n"
+        f"{instruction}"
     )
 
-    body = generate_email_content(instruction)
-    send_email(employee.email, "Welcome to MR Developers", body)
+    response = llm.invoke(
+        general_prompt.format_prompt(
+            subject=subject,
+            instruction=full_instruction
+        ).to_messages()
+    )
+
+    return response.content
+
+def send_welcome_email(new_employee: Employee):
+    try:
+        body = generate_welcome_email_content(new_employee)
+
+        send_email(
+            new_employee.email,
+            "Welcome to the Company",
+            body
+        )
+    except Exception as e:
+        print("Email failed:", e)
 
 @router.get("/", response_model=list[EmployeeResponse])
 def get_all_employees(db: db_dependency):
@@ -146,6 +192,7 @@ def update_employee(
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
     employee = db.query(Employee).filter(Employee.id == id).first()
+
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -157,7 +204,7 @@ def update_employee(
 
     return employee
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_200_OK)
 def delete_employee(
     id: int,
     db: db_dependency,
@@ -167,22 +214,21 @@ def delete_employee(
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
     employee = db.query(Employee).filter(Employee.id == id).first()
+
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
     db.delete(employee)
     db.commit()
 
-@router.post("/send-email", status_code=status.HTTP_200_OK)
+    return {"message": "Employee deleted successfully"}
+
+@router.post("/send-email")
 def send_selected_email(
     data: EmailRequest,
-    background_tasks: BackgroundTasks,
-    db: db_dependency,
-    admin: admin_dependency
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = None
 ):
-    if admin is None:
-        raise HTTPException(status_code=401, detail="Authentication Failed")
-
     employees = db.query(Employee).filter(
         Employee.id.in_(data.employee_ids)
     ).all()
@@ -190,9 +236,13 @@ def send_selected_email(
     if not employees:
         raise HTTPException(status_code=404, detail="No employees found")
 
-    body = generate_email_content(data.instruction)
-
     for emp in employees:
+        body = generate_general_email_content(
+            emp,
+            data.subject,
+            data.instruction
+        )
+
         background_tasks.add_task(
             send_email,
             emp.email,
