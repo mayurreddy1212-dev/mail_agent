@@ -8,8 +8,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://ems-frontend-pi-five.vercel.app"],  #deployment
-    # allow_origins=["http://localhost:5173"],    #development
+    # allow_origins=["https://ems-frontend-pi-five.vercel.app"],  #deployment
+    allow_origins=["http://localhost:5173"],    #development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

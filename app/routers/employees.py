@@ -54,6 +54,14 @@ class EmployeeResponse(EmployeeRequest):
     class Config:
         from_attributes = True
 
+class EmailRequest(BaseModel):
+    subject: str
+    instruction: str
+
+class BulkEmailRequest(BaseModel):
+    subject: str
+    instruction: str
+
 def send_email(to_email: str, subject: str, body: str):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_ADDRESS
@@ -188,3 +196,70 @@ def delete_employee(
 
     db.delete(employee)
     db.commit()
+
+@router.post("/{id}/send-email", status_code=status.HTTP_200_OK)
+def send_email_to_employee(
+    id: int,
+    email_request: EmailRequest,
+    background_tasks: BackgroundTasks,
+    db: db_dependency,
+    admin: admin_dependency
+):
+    if admin is None:
+        raise HTTPException(status_code=401, detail="Authentication Failed")
+
+    employee = db.query(Employee).filter(Employee.id == id).first()
+
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    def background_email_task():
+        try:
+            body = generate_email_content(email_request.instruction)
+            send_email(
+                employee.email,
+                email_request.subject,
+                body
+            )
+        except Exception as e:
+            print("Email failed:", e)
+
+    background_tasks.add_task(background_email_task)
+
+    return {"message": "Email is being sent"}
+
+@router.post("/send-bulk-email", status_code=status.HTTP_200_OK)
+def send_bulk_email(
+    email_request: BulkEmailRequest,
+    background_tasks: BackgroundTasks,
+    db: db_dependency,
+    admin: admin_dependency
+):
+    if admin is None:
+        raise HTTPException(status_code=401, detail="Authentication Failed")
+
+    employees = db.query(Employee).filter(Employee.is_active == True).all()
+
+    if not employees:
+        raise HTTPException(status_code=404, detail="No active employees found")
+
+    def background_bulk_task():
+        try:
+            body = generate_email_content(email_request.instruction)
+
+            for employee in employees:
+                try:
+                    send_email(
+                        employee.email,
+                        email_request.subject,
+                        body
+                    )
+                except Exception as e:
+                    print(f"Failed to send to {employee.email}:", e)
+
+        except Exception as e:
+            print("Bulk email generation failed:", e)
+
+    background_tasks.add_task(background_bulk_task)
+
+    return {"message": f"Bulk email is being sent to {len(employees)} employees"}
