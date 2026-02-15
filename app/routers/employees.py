@@ -3,11 +3,9 @@ from sqlalchemy.orm import Session
 from starlette import status
 from typing import Annotated
 from pydantic import BaseModel, Field, EmailStr
-
 from app.database import SessionLocal
 from app.models import Employee
 from app.routers.auth import get_current_user
-
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -50,17 +48,13 @@ class EmployeeRequest(BaseModel):
 
 class EmployeeResponse(EmployeeRequest):
     id: int
-
     class Config:
         from_attributes = True
 
 class EmailRequest(BaseModel):
     subject: str
     instruction: str
-
-class BulkEmailRequest(BaseModel):
-    subject: str
-    instruction: str
+    employee_ids: list[int]
 
 def send_email(to_email: str, subject: str, body: str):
     msg = MIMEMultipart()
@@ -77,18 +71,14 @@ def send_email(to_email: str, subject: str, body: str):
 def generate_email_content(instruction: str) -> str:
     prompt = ChatPromptTemplate.from_template(
         "You are a professional HR communication specialist.\n\n"
-        "Write a polished, warm, and professional welcome email for a new employee joining MR Developers.\n\n"
-        "Requirements:\n"
-        "- The company name must be clearly mentioned as MR Developers.\n"
-        "- The email must be written from Mayur, Founder & CEO of MR Developers.\n"
-        "- Maintain a confident, inspiring, and leadership tone.\n"
-        "- Highlight company culture, growth opportunities, professionalism, and long-term vision.\n"
-        "- Keep it concise but impactful.\n"
-        "- Format properly with greeting, body paragraphs, and professional signature.\n\n"
+        "Write a polished, warm, and professional email for MR Developers.\n\n"
+        "- The company name must be MR Developers.\n"
+        "- The email must be written from Mayur, Founder & CEO.\n"
+        "- Maintain a confident and leadership tone.\n"
+        "- Keep it concise and impactful.\n\n"
         "{instruction}\n\n"
         "Generate only the final email content."
     )
-
 
     llm = ChatGroq(
         model="llama-3.1-8b-instant",
@@ -101,25 +91,15 @@ def generate_email_content(instruction: str) -> str:
 
     return response.content
 
-def send_welcome_email(new_employee: Employee):
-    try:
-        instruction = (
-            f"The employee name is {new_employee.name}. "
-            f"They have joined MR Developers as a {new_employee.designation}. "
-            f"Make the email welcoming, motivational, and encouraging. "
-            f"Emphasize teamwork, excellence, innovation, and future growth within the organization."
-        )
+def send_welcome_email(employee: Employee):
+    instruction = (
+        f"The employee name is {employee.name}. "
+        f"They joined MR Developers as {employee.designation}. "
+        f"Make the email welcoming and motivational."
+    )
 
-        body = generate_email_content(instruction)
-
-        send_email(
-            new_employee.email,
-            "Welcome to the Company",
-            body
-        )
-
-    except Exception as e:
-        print("Email failed:", e)
+    body = generate_email_content(instruction)
+    send_email(employee.email, "Welcome to MR Developers", body)
 
 @router.get("/", response_model=list[EmployeeResponse])
 def get_all_employees(db: db_dependency):
@@ -128,10 +108,8 @@ def get_all_employees(db: db_dependency):
 @router.get("/{id}", response_model=EmployeeResponse)
 def get_employee_by_id(id: int, db: db_dependency):
     employee = db.query(Employee).filter(Employee.id == id).first()
-
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-
     return employee
 
 @router.post("/", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
@@ -168,7 +146,6 @@ def update_employee(
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
     employee = db.query(Employee).filter(Employee.id == id).first()
-
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -190,17 +167,15 @@ def delete_employee(
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
     employee = db.query(Employee).filter(Employee.id == id).first()
-
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
     db.delete(employee)
     db.commit()
 
-@router.post("/{id}/send-email", status_code=status.HTTP_200_OK)
-def send_email_to_employee(
-    id: int,
-    email_request: EmailRequest,
+@router.post("/send-email", status_code=status.HTTP_200_OK)
+def send_selected_email(
+    data: EmailRequest,
     background_tasks: BackgroundTasks,
     db: db_dependency,
     admin: admin_dependency
@@ -208,58 +183,21 @@ def send_email_to_employee(
     if admin is None:
         raise HTTPException(status_code=401, detail="Authentication Failed")
 
-    employee = db.query(Employee).filter(Employee.id == id).first()
-
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-
-    def background_email_task():
-        try:
-            body = generate_email_content(email_request.instruction)
-            send_email(
-                employee.email,
-                email_request.subject,
-                body
-            )
-        except Exception as e:
-            print("Email failed:", e)
-
-    background_tasks.add_task(background_email_task)
-
-    return {"message": "Email is being sent"}
-
-@router.post("/send-bulk-email", status_code=status.HTTP_200_OK)
-def send_bulk_email(
-    email_request: BulkEmailRequest,
-    background_tasks: BackgroundTasks,
-    db: db_dependency,
-    admin: admin_dependency
-):
-    if admin is None:
-        raise HTTPException(status_code=401, detail="Authentication Failed")
-
-    employees = db.query(Employee).filter(Employee.is_active == True).all()
+    employees = db.query(Employee).filter(
+        Employee.id.in_(data.employee_ids)
+    ).all()
 
     if not employees:
-        raise HTTPException(status_code=404, detail="No active employees found")
+        raise HTTPException(status_code=404, detail="No employees found")
 
-    def background_bulk_task():
-        try:
-            body = generate_email_content(email_request.instruction)
+    body = generate_email_content(data.instruction)
 
-            for employee in employees:
-                try:
-                    send_email(
-                        employee.email,
-                        email_request.subject,
-                        body
-                    )
-                except Exception as e:
-                    print(f"Failed to send to {employee.email}:", e)
+    for emp in employees:
+        background_tasks.add_task(
+            send_email,
+            emp.email,
+            data.subject,
+            body
+        )
 
-        except Exception as e:
-            print("Bulk email generation failed:", e)
-
-    background_tasks.add_task(background_bulk_task)
-
-    return {"message": f"Bulk email is being sent to {len(employees)} employees"}
+    return {"message": "Emails are being sent"}
